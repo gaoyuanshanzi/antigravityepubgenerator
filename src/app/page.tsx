@@ -245,6 +245,7 @@ export default function Home() {
   const startTranslation = async () => {
     if (chapters.length === 0) return;
     setIsTranslating(true);
+    isTranslatingRef.current = true;
 
     // Find first non-completed chapter index to resume from
     let startIndex = chapters.findIndex(ch => ch.status !== 'completed');
@@ -365,16 +366,19 @@ export default function Home() {
           return copy;
         });
         setIsTranslating(false);
+        isTranslatingRef.current = false;
         break; // Stop loop on error
       }
     }
 
     setIsTranslating(false);
+    isTranslatingRef.current = false;
   };
 
   // Pause translation
   const pauseTranslation = () => {
     setIsTranslating(false);
+    isTranslatingRef.current = false;
   };
 
   // Generate Cover Image based on overall story summary
