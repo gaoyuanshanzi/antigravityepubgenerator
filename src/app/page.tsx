@@ -13,7 +13,6 @@ import {
   CheckCircle,
   RefreshCw,
   Key,
-  Image as ImageIcon,
   Book,
   FileText,
   ChevronRight,
@@ -29,9 +28,6 @@ interface ChapterItem {
   summary: string;
   status: 'pending' | 'translating' | 'completed' | 'error';
   errorMessage?: string;
-  illustrationPrompt?: string;
-  illustrationUrl?: string;
-  illustrationBuffer?: ArrayBuffer;
 }
 
 export default function Home() {
@@ -47,10 +43,9 @@ export default function Home() {
   const [publisher, setPublisher] = useState<string>('Evvia Publishing');
   const [contact, setContact] = useState<string>('evviacorp@gmail.com');
 
-  // Translation & Style Configurations
+  // Translation Configurations
   const [geminiModel, setGeminiModel] = useState<string>('gemini-2.5-flash');
   const [customApiKey, setCustomApiKey] = useState<string>('');
-  const [artStyle, setArtStyle] = useState<string>('watercolor painting, dreamy atmosphere, soft colors');
   const [guidelines, setGuidelines] = useState<string>(
     'Maintain standard literary English narrative style. Keep it readable, natural, and immersive. Use a consistent voice.'
   );
@@ -63,9 +58,6 @@ export default function Home() {
   const [storySummary, setStorySummary] = useState<string>('');
   const [isTranslating, setIsTranslating] = useState<boolean>(false);
   const [activeChapterIndex, setActiveChapterIndex] = useState<number>(-1);
-  const [coverUrl, setCoverUrl] = useState<string>('');
-  const [coverBuffer, setCoverBuffer] = useState<ArrayBuffer | null>(null);
-  const [isGeneratingCover, setIsGeneratingCover] = useState<boolean>(false);
   const [selectedChapterIndex, setSelectedChapterIndex] = useState<number>(0);
   const [isLoadingFile, setIsLoadingFile] = useState<boolean>(false);
   const [parseLogs, setParseLogs] = useState<string>('');
@@ -301,45 +293,7 @@ export default function Home() {
           : `Chapter ${i + 1}: ${chapterSummary}`;
         setStorySummary(updatedStorySummary);
 
-        // 2. Generate illustration prompt
-        const promptResponse = await fetch('/api/generate-prompt', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: chapters[i].title,
-            summary: chapterSummary,
-            artStyle: artStyle,
-            apiKey: customApiKey || undefined,
-            model: geminiModel,
-          }),
-        });
-
-        let illustrationPrompt = `${chapters[i].title}, ${artStyle}`;
-        if (promptResponse.ok) {
-          const promptData = await promptResponse.ok ? await promptResponse.json() : null;
-          if (promptData && promptData.prompt) {
-            illustrationPrompt = promptData.prompt;
-          }
-        }
-
-        // 3. Fetch image through proxy
-        const seed = Math.floor(Math.random() * 1000000);
-        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(illustrationPrompt)}?width=800&height=1000&nologo=true&seed=${seed}`;
-        
-        let illustrationBuffer: ArrayBuffer | undefined = undefined;
-        let illustrationUrl: string | undefined = undefined;
-
-        try {
-          const imageResponse = await fetch(`/api/fetch-image?url=${encodeURIComponent(imageUrl)}`);
-          if (imageResponse.ok) {
-            illustrationBuffer = await imageResponse.arrayBuffer();
-            illustrationUrl = URL.createObjectURL(new Blob([illustrationBuffer], { type: 'image/jpeg' }));
-          }
-        } catch (imgErr) {
-          console.error(`Failed to fetch illustration for Chapter ${i + 1}:`, imgErr);
-        }
-
-        // Update chapters state with translation and images
+        // Update chapters state with translation
         setChapters(prev => {
           const copy = [...prev];
           copy[i] = {
@@ -347,9 +301,6 @@ export default function Home() {
             status: 'completed',
             translatedText: translation,
             summary: chapterSummary,
-            illustrationPrompt,
-            illustrationUrl,
-            illustrationBuffer,
           };
           return copy;
         });
@@ -381,54 +332,6 @@ export default function Home() {
     isTranslatingRef.current = false;
   };
 
-  // Generate Cover Image based on overall story summary
-  const generateCoverImage = async () => {
-    if (!bookTitle) return;
-    setIsGeneratingCover(true);
-
-    try {
-      // Use storySummary or description if summary empty
-      const summaryText = storySummary || `A novel titled ${bookTitle} written by ${author}.`;
-      
-      const promptResponse = await fetch('/api/generate-prompt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: bookTitle,
-          summary: `This is a book cover art prompt for the novel titled "${bookTitle}". The summary of the book is: ${summaryText}`,
-          artStyle: `${artStyle}, professional book cover design, epic layout, focal point, title spacing`,
-          apiKey: customApiKey || undefined,
-          model: geminiModel,
-        }),
-      });
-
-      let coverPrompt = `Stunning professional book cover design for a novel titled "${bookTitle}" in the art style of ${artStyle}`;
-      if (promptResponse.ok) {
-        const promptData = await promptResponse.json();
-        if (promptData && promptData.prompt) {
-          coverPrompt = promptData.prompt;
-        }
-      }
-
-      const seed = Math.floor(Math.random() * 1000000);
-      const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(coverPrompt)}?width=800&height=1200&nologo=true&seed=${seed}`;
-      
-      const imageResponse = await fetch(`/api/fetch-image?url=${encodeURIComponent(imageUrl)}`);
-      if (imageResponse.ok) {
-        const buffer = await imageResponse.arrayBuffer();
-        setCoverBuffer(buffer);
-        setCoverUrl(URL.createObjectURL(new Blob([buffer], { type: 'image/jpeg' })));
-      } else {
-        throw new Error('Failed to fetch cover image from generator proxy.');
-      }
-    } catch (err: any) {
-      console.error('Cover generation error:', err);
-      alert('표지 이미지 생성 실패: ' + err?.message);
-    } finally {
-      setIsGeneratingCover(false);
-    }
-  };
-
   // Download EPUB eBook
   const handleDownloadEpub = async () => {
     try {
@@ -443,7 +346,6 @@ export default function Home() {
         title: ch.title,
         originalText: ch.originalText,
         translatedText: ch.translatedText,
-        illustrationBuffer: ch.illustrationBuffer,
       }));
 
       const epubBlob = await buildEpub({
@@ -451,7 +353,6 @@ export default function Home() {
         author: author,
         publisher: publisher,
         contact: contact,
-        coverBuffer: coverBuffer || undefined,
         chapters: epubChapters,
       });
 
@@ -636,7 +537,7 @@ export default function Home() {
           {/* Translation Configs */}
           <div className="glass-panel section-card">
             <div className="section-title">
-              <Sparkles size={18} /> 번역 및 삽화 프롬프트
+              <Sparkles size={18} /> 번역 프롬프트 설정
             </div>
             <div className="settings-grid">
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -665,20 +566,10 @@ export default function Home() {
                 </span>
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">삽화 화풍 (Art Style)</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={artStyle}
-                  onChange={(e) => setArtStyle(e.target.value)}
-                  placeholder="예: watercolor painting, oil painting"
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">번역 가이드라인 (Guidelines)</label>
                 <textarea
                   className="form-input"
-                  style={{ minHeight: '80px', resize: 'vertical' }}
+                  style={{ minHeight: '120px', resize: 'vertical' }}
                   value={guidelines}
                   onChange={(e) => setGuidelines(e.target.value)}
                 />
@@ -695,7 +586,7 @@ export default function Home() {
               <label className="form-label">고유명사 및 말투 가이드 (줄바꿈 구분)</label>
               <textarea
                 className="form-input"
-                style={{ minHeight: '100px', resize: 'vertical', fontFamily: 'monospace', fontSize: '0.85rem' }}
+                style={{ minHeight: '120px', resize: 'vertical', fontFamily: 'monospace', fontSize: '0.85rem' }}
                 value={glossary}
                 onChange={(e) => setGlossary(e.target.value)}
                 placeholder="한국어 -> English"
@@ -773,7 +664,7 @@ export default function Home() {
                       </button>
                     ) : (
                       <button onClick={startTranslation} className="btn-primary">
-                        <Play size={16} /> 번역 및 삽화 생성 시작
+                        <Play size={16} /> 번역 시작
                       </button>
                     )}
                     <button
@@ -804,111 +695,27 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Cover & Gallery preview */}
-              <div className="glass-panel art-preview-card">
-                <div className="section-title">
-                  <ImageIcon size={18} /> 책 표지 및 삽화 갤러리
-                </div>
-                <div className="art-preview-grid">
-                  {/* Left: Cover Render */}
-                  <div className="cover-wrapper">
-                    {coverUrl ? (
-                      <>
-                        <img src={coverUrl} alt="Cover Preview" />
-                        <div className="cover-info-overlay">
-                          <div className="cover-info-title">{bookTitle}</div>
-                          <div className="cover-info-meta">{author}</div>
-                        </div>
-                      </>
-                    ) : (
-                      <div style={{ textAlign: 'center', padding: '16px' }}>
-                        <BookOpen size={40} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
-                        <button
-                          onClick={generateCoverImage}
-                          disabled={isGeneratingCover}
-                          className="btn-logout"
-                          style={{ fontSize: '0.8rem', borderColor: 'var(--accent-cyan)' }}
-                        >
-                          {isGeneratingCover ? '생성 중...' : '표지 이미지 생성'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Right: Chapter Illustrations */}
-                  <div>
-                    <h3 style={{ fontSize: '0.95rem', marginBottom: '12px', color: 'var(--text-secondary)' }}>
-                      챕터별 생성된 삽화 (클릭하여 확인)
-                    </h3>
-                    <div className="art-gallery">
-                      {chapters.map((ch, idx) => (
-                        <div
-                          key={idx}
-                          className="gallery-item"
-                          onClick={() => setSelectedChapterIndex(idx)}
-                          style={{
-                            borderColor: selectedChapterIndex === idx ? 'var(--accent-cyan)' : 'var(--border-glass)',
-                          }}
-                        >
-                          {ch.illustrationUrl ? (
-                            <img src={ch.illustrationUrl} alt={ch.title} />
-                          ) : (
-                            <div
-                              style={{
-                                height: '100%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '0.75rem',
-                                color: 'var(--text-muted)',
-                              }}
-                            >
-                              대기 중
-                            </div>
-                          )}
-                          <div className="gallery-item-label">Ch {idx + 1}</div>
-                        </div>
-                      ))}
-                    </div>
-                    {chapters[selectedChapterIndex]?.illustrationPrompt && (
-                      <div
-                        style={{
-                          marginTop: '16px',
-                          padding: '12px',
-                          borderRadius: '8px',
-                          background: 'rgba(30, 41, 59, 0.3)',
-                          fontSize: '0.8rem',
-                          border: '1px solid var(--border-glass)',
-                        }}
-                      >
-                        <strong style={{ color: 'var(--accent-cyan)' }}>Ch {selectedChapterIndex + 1} Prompt: </strong>
-                        <span style={{ color: 'var(--text-secondary)' }}>
-                          {chapters[selectedChapterIndex].illustrationPrompt}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
               {/* Side-by-Side Content Console */}
               <div className="glass-panel console-card" style={{ flex: 1 }}>
                 <div className="section-title" style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <FileText size={18} /> 실시간 번역 프리뷰
                   </div>
-                  <select
-                    value={selectedChapterIndex}
-                    onChange={(e) => setSelectedChapterIndex(Number(e.target.value))}
-                    className="form-input"
-                    style={{ width: 'auto', padding: '4px 8px', fontSize: '0.8rem', height: 'auto' }}
-                  >
-                    {chapters.map((ch, idx) => (
-                      <option key={idx} value={idx}>
-                        Ch {idx + 1}: {ch.title.substring(0, 20)}...
-                      </option>
-                    ))}
-                  </select>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>현재 챕터 선택:</span>
+                    <select
+                      value={selectedChapterIndex}
+                      onChange={(e) => setSelectedChapterIndex(Number(e.target.value))}
+                      className="form-input"
+                      style={{ width: 'auto', padding: '4px 8px', fontSize: '0.8rem', height: 'auto' }}
+                    >
+                      {chapters.map((ch, idx) => (
+                        <option key={idx} value={idx}>
+                          Ch {idx + 1}: {ch.title.substring(0, 20)}...
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 <div className="live-viewer">

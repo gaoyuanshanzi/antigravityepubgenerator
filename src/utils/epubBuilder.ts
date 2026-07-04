@@ -4,7 +4,6 @@ export interface EpubChapter {
   title: string;
   originalText: string;
   translatedText: string;
-  illustrationBuffer?: ArrayBuffer; // Binary content of the illustration
 }
 
 export interface EpubBookConfig {
@@ -12,7 +11,6 @@ export interface EpubBookConfig {
   author: string;
   publisher: string;
   contact: string;
-  coverBuffer?: ArrayBuffer; // Binary content of the cover
   chapters: EpubChapter[];
 }
 
@@ -45,7 +43,7 @@ function textToXhtmlParagraphs(text: string): string {
 export async function buildEpub(config: EpubBookConfig): Promise<Blob> {
   const zip = new JSZip();
   const uuid = generateUUID();
-  const modifiedTime = new Date().toISOString().split('.')[0] + 'Z'; // e.g. 2026-07-04T12:00:00Z
+  const modifiedTime = new Date().toISOString().split('.')[0] + 'Z';
 
   // 1. mimetype (MUST be first file, uncompressed)
   zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
@@ -59,11 +57,11 @@ export async function buildEpub(config: EpubBookConfig): Promise<Blob> {
 </container>`;
   zip.file('META-INF/container.xml', containerXml);
 
-  // 3. OEBPS/css/style.css
+  // 3. OEBPS/css/style.css (Clean typography layout)
   const stylesheet = `body {
   font-family: "Georgia", "Times New Roman", serif;
-  margin: 5%;
-  line-height: 1.6;
+  margin: 8%;
+  line-height: 1.7;
   color: #111111;
   background-color: #ffffff;
 }
@@ -71,73 +69,53 @@ h1, h2, h3 {
   font-family: "Helvetica Neue", "Arial", sans-serif;
   text-align: center;
   color: #222222;
-  margin-top: 1.5em;
-  margin-bottom: 0.8em;
+  margin-top: 1.8em;
+  margin-bottom: 1em;
 }
 p {
   text-indent: 1.5em;
-  margin: 0 0 0.8em 0;
+  margin: 0 0 0.9em 0;
   text-align: justify;
 }
 p:first-of-type {
   text-indent: 0;
 }
-.illustration-container {
-  text-align: center;
-  margin: 2em 0;
-  page-break-inside: avoid;
-}
-.illustration {
-  max-width: 100%;
-  max-height: 600px;
-  height: auto;
-  border-radius: 6px;
-}
 .cover-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 80vh;
   text-align: center;
-  padding: 2em 0;
+  padding: 3em 1em;
 }
 .cover-title {
-  font-size: 2.2em;
+  font-size: 2.5em;
   font-weight: bold;
-  margin-top: 1em;
-  margin-bottom: 0.2em;
+  margin-top: 2em;
+  margin-bottom: 0.5em;
   color: #111111;
-  text-align: center;
 }
 .cover-author {
-  font-size: 1.4em;
-  margin-bottom: 2em;
+  font-size: 1.5em;
+  margin-bottom: 4em;
   color: #555555;
-  text-align: center;
-}
-.cover-image-container {
-  text-align: center;
-  margin: 2em 0;
-}
-.cover-image {
-  max-width: 80%;
-  max-height: 500px;
-  height: auto;
-  border-radius: 8px;
 }
 .cover-publisher {
   font-size: 1.1em;
   font-weight: bold;
-  margin-top: 3em;
+  margin-top: auto;
   color: #333333;
-  text-align: center;
 }
 .cover-contact {
   font-size: 0.9em;
   color: #666666;
   margin-top: 0.5em;
-  text-align: center;
 }
 `;
   zip.file('OEBPS/css/style.css', stylesheet);
 
-  // 4. OEBPS/xhtml/cover.xhtml
+  // 4. OEBPS/xhtml/cover.xhtml (Text Cover Page)
   const coverXhtml = `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
@@ -149,11 +127,6 @@ p:first-of-type {
   <div class="cover-container">
     <h1 class="cover-title">${escapeHtml(config.title)}</h1>
     <div class="cover-author">By ${escapeHtml(config.author)}</div>
-    ${config.coverBuffer ? `
-    <div class="cover-image-container">
-      <img class="cover-image" src="../images/cover.jpg" alt="Cover Image"/>
-    </div>
-    ` : ''}
     <div class="cover-publisher">${escapeHtml(config.publisher)}</div>
     <div class="cover-contact">${escapeHtml(config.contact)}</div>
   </div>
@@ -161,15 +134,9 @@ p:first-of-type {
 </html>`;
   zip.file('OEBPS/xhtml/cover.xhtml', coverXhtml);
 
-  // Save cover image if exists
-  if (config.coverBuffer) {
-    zip.file('OEBPS/images/cover.jpg', config.coverBuffer);
-  }
-
   // 5. Generate chapters
   config.chapters.forEach((chapter, index) => {
     const chapterId = index + 1;
-    const hasIllustration = !!chapter.illustrationBuffer;
     const chapterXhtml = `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
@@ -179,21 +146,12 @@ p:first-of-type {
 </head>
 <body>
   <h2>${escapeHtml(chapter.title)}</h2>
-  ${hasIllustration ? `
-  <div class="illustration-container">
-    <img class="illustration" src="../images/chapter_${chapterId}.jpg" alt="Illustration for ${escapeHtml(chapter.title)}"/>
-  </div>
-  ` : ''}
   <div class="chapter-content">
     ${textToXhtmlParagraphs(chapter.translatedText)}
   </div>
 </body>
 </html>`;
     zip.file(`OEBPS/xhtml/chapter_${chapterId}.xhtml`, chapterXhtml);
-
-    if (chapter.illustrationBuffer) {
-      zip.file(`OEBPS/images/chapter_${chapterId}.jpg`, chapter.illustrationBuffer);
-    }
   });
 
   // 6. OEBPS/toc.ncx
@@ -235,16 +193,9 @@ ${navPoints}  </navMap>
     <item id="style" href="css/style.css" media-type="text/css"/>
     <item id="cover-xhtml" href="xhtml/cover.xhtml" media-type="application/xhtml+xml"/>\n`;
 
-  if (config.coverBuffer) {
-    manifestItems += `    <item id="cover-image" href="images/cover.jpg" media-type="image/jpeg" properties="cover-image"/>\n`;
-  }
-
   config.chapters.forEach((chapter, index) => {
     const chapterId = index + 1;
     manifestItems += `    <item id="chapter_${chapterId}" href="xhtml/chapter_${chapterId}.xhtml" media-type="application/xhtml+xml"/>\n`;
-    if (chapter.illustrationBuffer) {
-      manifestItems += `    <item id="image_${chapterId}" href="images/chapter_${chapterId}.jpg" media-type="image/jpeg"/>\n`;
-    }
   });
 
   let spineItems = `    <itemref idref="cover-xhtml"/>\n`;
@@ -262,7 +213,6 @@ ${navPoints}  </navMap>
     <dc:publisher>${escapeHtml(config.publisher)}</dc:publisher>
     <dc:language>en</dc:language>
     <meta property="dcterms:modified">${modifiedTime}</meta>
-    ${config.coverBuffer ? '<meta name="cover" content="cover-image"/>' : ''}
   </metadata>
   <manifest>
 ${manifestItems}  </manifest>
