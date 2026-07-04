@@ -77,16 +77,23 @@ export default function Home() {
   // Check Session Storage for authentication
   useEffect(() => {
     const authSession = sessionStorage.getItem('evvia_admin_session');
-    if (authSession === 'authenticated') {
+    const savedApiKey = sessionStorage.getItem('evvia_gemini_api_key');
+    if (authSession === 'authenticated' && savedApiKey) {
       setIsAuthenticated(true);
+      setCustomApiKey(savedApiKey);
     }
   }, []);
 
   // Handle Login
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!customApiKey.trim()) {
+      setAuthError('Gemini API Key를 입력하세요.');
+      return;
+    }
     if (adminId === 'admin' && adminPassword === '123jesus') {
       sessionStorage.setItem('evvia_admin_session', 'authenticated');
+      sessionStorage.setItem('evvia_gemini_api_key', customApiKey.trim());
       setIsAuthenticated(true);
       setAuthError('');
     } else {
@@ -97,9 +104,11 @@ export default function Home() {
   // Handle Logout
   const handleLogout = () => {
     sessionStorage.removeItem('evvia_admin_session');
+    sessionStorage.removeItem('evvia_gemini_api_key');
     setIsAuthenticated(false);
     setAdminId('');
     setAdminPassword('');
+    setCustomApiKey('');
   };
 
   // Split Korean document into chapters based on headings or paragraphs
@@ -532,6 +541,18 @@ export default function Home() {
             />
           </div>
 
+          <div className="form-group">
+            <label className="form-label">GEMINI API KEY</label>
+            <input
+              type="password"
+              className="form-input"
+              value={customApiKey}
+              onChange={(e) => setCustomApiKey(e.target.value)}
+              placeholder="AIzaSy..."
+              required
+            />
+          </div>
+
           <button type="submit" className="btn-primary" style={{ marginTop: '12px' }}>
             Access Console <ChevronRight size={18} />
           </button>
@@ -627,14 +648,17 @@ export default function Home() {
                 </select>
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Gemini API Key (개인 키 설정)</label>
+                <label className="form-label">Gemini API Key</label>
                 <input
-                  type="password"
+                  type="text"
                   className="form-input"
-                  value={customApiKey}
-                  onChange={(e) => setCustomApiKey(e.target.value)}
-                  placeholder="미입력 시 서버 환경변수 키 사용"
+                  value={customApiKey ? `${customApiKey.substring(0, 8)}...` : ''}
+                  disabled
+                  style={{ opacity: 0.7, cursor: 'not-allowed', background: 'rgba(15, 23, 42, 0.4)' }}
                 />
+                <span style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)', marginTop: '4px', display: 'block' }}>
+                  ✓ 로그인 시 입력된 키 사용 중
+                </span>
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">삽화 화풍 (Art Style)</label>
