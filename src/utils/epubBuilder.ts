@@ -57,7 +57,7 @@ export async function buildEpub(config: EpubBookConfig): Promise<Blob> {
 </container>`;
   zip.file('META-INF/container.xml', containerXml);
 
-  // 3. OEBPS/css/style.css (Clean typography layout)
+  // 3. OEBPS/css/style.css
   const stylesheet = `body {
   font-family: "Georgia", "Times New Roman", serif;
   margin: 8%;
@@ -65,7 +65,7 @@ export async function buildEpub(config: EpubBookConfig): Promise<Blob> {
   color: #111111;
   background-color: #ffffff;
 }
-h1, h2, h3 {
+h1, h2 {
   font-family: "Helvetica Neue", "Arial", sans-serif;
   text-align: center;
   color: #222222;
@@ -115,7 +115,7 @@ p:first-of-type {
 `;
   zip.file('OEBPS/css/style.css', stylesheet);
 
-  // 4. OEBPS/xhtml/cover.xhtml (Text Cover Page)
+  // 4. OEBPS/xhtml/cover.xhtml (Title page)
   const coverXhtml = `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
@@ -134,44 +134,28 @@ p:first-of-type {
 </html>`;
   zip.file('OEBPS/xhtml/cover.xhtml', coverXhtml);
 
-  // 5. Generate chapters
-  config.chapters.forEach((chapter, index) => {
-    const chapterId = index + 1;
-    const chapterXhtml = `<?xml version="1.0" encoding="utf-8"?>
+  // 5. Combine all chapter contents into a single continuous content page
+  // This maintains the original flow without artificial chapter breaks or headers.
+  const combinedContent = config.chapters
+    .map((chapter) => chapter.translatedText)
+    .join('\n\n');
+
+  const contentXhtml = `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
 <head>
-  <title>${escapeHtml(chapter.title)}</title>
+  <title>${escapeHtml(config.title)}</title>
   <link rel="stylesheet" type="text/css" href="../css/style.css"/>
 </head>
 <body>
-  <h2>${escapeHtml(chapter.title)}</h2>
-  <div class="chapter-content">
-    ${textToXhtmlParagraphs(chapter.translatedText)}
+  <div class="book-content">
+    ${textToXhtmlParagraphs(combinedContent)}
   </div>
 </body>
 </html>`;
-    zip.file(`OEBPS/xhtml/chapter_${chapterId}.xhtml`, chapterXhtml);
-  });
+  zip.file('OEBPS/xhtml/content.xhtml', contentXhtml);
 
-  // 6. OEBPS/toc.ncx
-  let navPoints = `    <navPoint id="navPoint-cover" playOrder="1">
-      <navLabel>
-        <text>Cover</text>
-      </navLabel>
-      <content src="xhtml/cover.xhtml"/>
-    </navPoint>\n`;
-
-  config.chapters.forEach((chapter, index) => {
-    const chapterId = index + 1;
-    navPoints += `    <navPoint id="navPoint-chapter-${chapterId}" playOrder="${chapterId + 1}">
-      <navLabel>
-        <text>${escapeHtml(chapter.title)}</text>
-      </navLabel>
-      <content src="xhtml/chapter_${chapterId}.xhtml"/>
-    </navPoint>\n`;
-  });
-
+  // 6. OEBPS/toc.ncx (Simple Table of Contents)
   const tocNcx = `<?xml version="1.0" encoding="UTF-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
   <head>
@@ -184,26 +168,23 @@ p:first-of-type {
     <text>${escapeHtml(config.title)}</text>
   </docTitle>
   <navMap>
-${navPoints}  </navMap>
+    <navPoint id="navPoint-cover" playOrder="1">
+      <navLabel>
+        <text>Cover</text>
+      </navLabel>
+      <content src="xhtml/cover.xhtml"/>
+    </navPoint>
+    <navPoint id="navPoint-content" playOrder="2">
+      <navLabel>
+        <text>Start Reading</text>
+      </navLabel>
+      <content src="xhtml/content.xhtml"/>
+    </navPoint>
+  </navMap>
 </ncx>`;
   zip.file('OEBPS/toc.ncx', tocNcx);
 
   // 7. OEBPS/content.opf
-  let manifestItems = `    <item id="toc" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
-    <item id="style" href="css/style.css" media-type="text/css"/>
-    <item id="cover-xhtml" href="xhtml/cover.xhtml" media-type="application/xhtml+xml"/>\n`;
-
-  config.chapters.forEach((chapter, index) => {
-    const chapterId = index + 1;
-    manifestItems += `    <item id="chapter_${chapterId}" href="xhtml/chapter_${chapterId}.xhtml" media-type="application/xhtml+xml"/>\n`;
-  });
-
-  let spineItems = `    <itemref idref="cover-xhtml"/>\n`;
-  config.chapters.forEach((_, index) => {
-    const chapterId = index + 1;
-    spineItems += `    <itemref idref="chapter_${chapterId}"/>\n`;
-  });
-
   const contentOpf = `<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="3.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -215,9 +196,15 @@ ${navPoints}  </navMap>
     <meta property="dcterms:modified">${modifiedTime}</meta>
   </metadata>
   <manifest>
-${manifestItems}  </manifest>
+    <item id="toc" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+    <item id="style" href="css/style.css" media-type="text/css"/>
+    <item id="cover-xhtml" href="xhtml/cover.xhtml" media-type="application/xhtml+xml"/>
+    <item id="content-xhtml" href="xhtml/content.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
   <spine toc="toc">
-${spineItems}  </spine>
+    <itemref idref="cover-xhtml"/>
+    <itemref idref="content-xhtml"/>
+  </spine>
 </package>`;
   zip.file('OEBPS/content.opf', contentOpf);
 

@@ -103,94 +103,49 @@ export default function Home() {
     setCustomApiKey('');
   };
 
-  // Split Korean document into chapters based on headings or paragraphs
+  // Split Korean document into 3000-word parts while keeping paragraph structure
   const parseDocument = (htmlContent: string, rawText: string) => {
     setParseLogs('문서 해석 중...');
     
-    // We try to parse using HTML tags first
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(htmlContent, 'text/html');
-    const headings = doc.querySelectorAll('h1, h2, h3, h4');
+    const paragraphs = rawText
+      .split(/\n+/)
+      .map(p => p.trim())
+      .filter(p => p.length > 0);
 
-    let parsedChapters: { title: string; text: string }[] = [];
-
-    if (headings.length > 1) {
-      setParseLogs(`HTML 제목 태그(${headings.length}개) 발견. 제목 기준으로 챕터를 나눕니다.`);
-      headings.forEach((heading, idx) => {
-        const title = heading.textContent?.trim() || `Chapter ${idx + 1}`;
-        let contentText = '';
-        let nextSibling = heading.nextElementSibling;
-        
-        // Accumulate text paragraphs until next heading
-        while (nextSibling && !['H1', 'H2', 'H3', 'H4'].includes(nextSibling.tagName)) {
-          if (nextSibling.textContent) {
-            contentText += nextSibling.textContent.trim() + '\n\n';
-          }
-          nextSibling = nextSibling.nextElementSibling;
-        }
-
-        if (contentText.trim().length > 0) {
-          parsedChapters.push({ title, text: contentText.trim() });
-        }
-      });
+    if (paragraphs.length === 0) {
+      setParseLogs('텍스트가 존재하지 않는 빈 문서입니다.');
+      return;
     }
 
-    // Fallback: Split raw text by paragraph rules
-    if (parsedChapters.length === 0) {
-      setParseLogs('제목 태그 미발견. 텍스트 패턴(예: 제1장, 제 1 화, Chapter 1) 기준으로 챕터를 나눕니다.');
-      const paragraphs = rawText.split(/\n+/).map(p => p.trim()).filter(p => p.length > 0);
-      
-      // Look for paragraphs matching chapter patterns
-      const chapterPattern = /^(제\s*\d+\s*[장화화강편])|^(chapter\s*\d+)|^(초장|프롤로그|에필로그|prologue|epilogue)/i;
-      
-      let currentTitle = 'Prologue';
-      let currentContent = '';
+    const parsedChunks: { title: string; text: string }[] = [];
+    let currentChunkParagraphs: string[] = [];
+    let currentWordCount = 0;
+    let chunkIndex = 1;
 
-      paragraphs.forEach((p) => {
-        if (chapterPattern.test(p) && p.length < 50) {
-          // If we had a previous chapter accumulated, save it
-          if (currentContent.trim()) {
-            parsedChapters.push({ title: currentTitle, text: currentContent.trim() });
-          }
-          currentTitle = p;
-          currentContent = '';
-        } else {
-          currentContent += p + '\n\n';
-        }
-      });
-
-      // Save the last chapter
-      if (currentContent.trim()) {
-        parsedChapters.push({ title: currentTitle, text: currentContent.trim() });
-      }
-    }
-
-    // Fallback 2: If still only one or zero chapters, split by word chunks
-    if (parsedChapters.length <= 1) {
-      const textToSplit = rawText.trim() || '본문 내용이 비어 있습니다.';
-      const words = textToSplit.split(/\s+/);
-      
-      if (words.length > 3000) {
-        setParseLogs(`구분선 미발견. 소설 분량이 크므로(${words.length} 단어) 3,000단어 단위로 자동 분할합니다.`);
-        const wordsPerChapter = 3000;
-        let chapterIndex = 1;
-        
-        for (let i = 0; i < words.length; i += wordsPerChapter) {
-          const chunk = words.slice(i, i + wordsPerChapter).join(' ');
-          parsedChapters.push({
-            title: `Chapter ${chapterIndex}`,
-            text: chunk,
-          });
-          chapterIndex++;
-        }
+    paragraphs.forEach((p) => {
+      const pWords = p.split(/\s+/).length;
+      if (currentWordCount + pWords > 3000 && currentChunkParagraphs.length > 0) {
+        parsedChunks.push({
+          title: `Part ${chunkIndex}`,
+          text: currentChunkParagraphs.join('\n\n')
+        });
+        chunkIndex++;
+        currentChunkParagraphs = [p];
+        currentWordCount = pWords;
       } else {
-        setParseLogs('단일 챕터로 읽어옵니다.');
-        parsedChapters = [{ title: 'Chapter 1', text: textToSplit }];
+        currentChunkParagraphs.push(p);
+        currentWordCount += pWords;
       }
+    });
+
+    if (currentChunkParagraphs.length > 0) {
+      parsedChunks.push({
+        title: `Part ${chunkIndex}`,
+        text: currentChunkParagraphs.join('\n\n')
+      });
     }
 
-    // Convert to ChapterItem structure
-    const items: ChapterItem[] = parsedChapters.map((ch) => ({
+    const items: ChapterItem[] = parsedChunks.map((ch) => ({
       title: ch.title,
       originalText: ch.text,
       translatedText: '',
@@ -200,7 +155,7 @@ export default function Home() {
 
     setChapters(items);
     setSelectedChapterIndex(0);
-    setParseLogs(`파싱 완료: 총 ${items.length}개의 챕터가 감지되었습니다.`);
+    setParseLogs(`파싱 완료: 원본 MS Word의 단락 구조를 유지하며 3,000단어 단위로 총 ${items.length}개의 파트로 분할되었습니다.`);
   };
 
   // Handle .docx File Upload
@@ -375,7 +330,7 @@ export default function Home() {
     setBookTitle('심청전 (The Story of Shim Cheong)');
     const mockChapters: ChapterItem[] = [
       {
-        title: '제 1 장: 효녀 심청 (Chapter 1: The Devoted Daughter Shim Cheong)',
+        title: 'Part 1',
         originalText: `옛날 옛적에 심학도라는 눈먼 봉사가 살고 있었다. 그의 아내 곽씨 부인은 인품이 훌륭했으나 심청이를 낳은 후 세상을 떠났다. 
 심봉사는 동냥젖을 얻어먹이며 외딸 심청이를 정성껏 키웠다. 심청이는 자라면서 효성이 지극하여 동네 사람들 모두가 침이 마르도록 칭찬하였다. 
 하루는 심봉사가 물에 빠졌는데, 몽운사 스님이 지나가다 그를 구해주고 "공양미 삼백 석을 시주하면 눈을 뜰 수 있다"고 말했다. 심봉사는 덜컥 약속을 해 버리고 집으로 돌아와 깊은 탄식을 내뱉었다.`,
@@ -384,7 +339,7 @@ export default function Home() {
         status: 'pending',
       },
       {
-        title: '제 2 장: 인당수의 제물 (Chapter 2: The Sacrifice of Indangsu)',
+        title: 'Part 2',
         originalText: `심청은 아버지가 탄식하는 사연을 듣고 깊은 고민에 빠졌다. 
 마침 뱃사람들이 인당수 바다의 성난 파도를 잠재우기 위해 처녀 제물을 찾고 있다는 소식을 들었다. 그들은 대가로 공양미 삼백 석을 주겠다고 제안했다. 
 심청은 아버지의 눈을 뜨게 할 유일한 방법이라 생각하고, 뱃사람들에게 자신을 제물로 팔기로 결심했다. 약속된 날이 오자 심청은 눈물을 흘리며 아버지에게 작별 인사를 건넸다. 배는 인당수로 향했고, 거친 파도가 몰아치는 가운데 심청은 뱃머리에서 바다로 몸을 던졌다.`,
@@ -393,7 +348,7 @@ export default function Home() {
         status: 'pending',
       },
       {
-        title: '제 3 장: 용궁의 환생 (Chapter 3: Rebirth in the Dragon Palace)',
+        title: 'Part 3',
         originalText: `바다에 빠진 심청은 죽지 않았다. 지극한 효성에 감동한 용왕이 그녀를 용궁으로 영접하여 귀빈으로 극진히 대접했다. 
 그곳에서 어머니 곽씨 부인을 꿈결처럼 재회하며 위로를 얻었다. 용왕은 심청을 커다란 연꽃에 실어 다시 인간 세상으로 보냈다. 
 뱃사람들은 바다 위로 떠오른 거대한 연꽃을 발견하고 신기하게 여겨 왕에게 진상했다. 왕은 연꽃 속에서 나온 아름다운 심청을 보고 첫눈에 반해 왕비로 맞이했다. 
@@ -405,7 +360,7 @@ export default function Home() {
     ];
     setChapters(mockChapters);
     setSelectedChapterIndex(0);
-    setParseLogs('테스트용 맹인 심봉사와 심청전 3개 챕터가 로드되었습니다.');
+    setParseLogs('테스트용 맹인 심봉사와 심청전 3개 파트가 로드되었습니다.');
   };
 
   // Rendering parameters
